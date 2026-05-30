@@ -188,7 +188,7 @@ export default function ResultsPage() {
               ai answer
             </h3>
             {!answerDone && !answerError && !cancelled && !loading && (
-              <button onClick={handleCancel} className="btn btn-ghost btn-xs">
+              <button type="button" onClick={handleCancel} className="btn btn-ghost btn-xs">
                 cancel
               </button>
             )}
@@ -205,7 +205,7 @@ export default function ResultsPage() {
             ) : (
               <div className="flex items-center gap-2 text-base-content/40">
                 <span className="loading loading-dots loading-sm" />
-                generating answer...
+                generating answer…
               </div>
             )}
           </div>
@@ -216,7 +216,7 @@ export default function ResultsPage() {
           {loading && results.length === 0 ? (
             <div className="space-y-4">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="skeleton h-24 w-full rounded-box" />
+                <div key={`skeleton-${i}`} className="skeleton h-24 w-full rounded-box" />
               ))}
             </div>
           ) : error ? (
@@ -237,7 +237,7 @@ export default function ResultsPage() {
               </p>
               <div className="space-y-4">
                 {results.map((r, i) => (
-                  <div key={i} className="bg-base-100 rounded-box p-4">
+                  <div key={r.url || i} className="bg-base-100 rounded-box p-4">
                     <a
                       href={r.url}
                       target="_blank"

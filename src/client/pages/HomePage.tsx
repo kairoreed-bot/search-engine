@@ -30,7 +30,7 @@ export default function HomePage() {
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
-              className="h-5 w-5 opacity-60 shrink-0"
+              className="size-5 opacity-60 shrink-0"
             >
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.35-4.35" />
@@ -39,9 +39,10 @@ export default function HomePage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="search the web..."
+              placeholder="search the web…"
               className="grow outline-none"
               autoFocus
+              aria-label="search query"
             />
           </label>
 
