@@ -4,6 +4,7 @@ export function useAutocomplete(query: string, onNavigate: (q: string) => void) 
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [focused, setFocused] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
   const listRef = useRef<HTMLDivElement | null>(null)
 
@@ -29,13 +30,16 @@ export function useAutocomplete(query: string, onNavigate: (q: string) => void) 
         const d = await r.json()
         const list: string[] = d.suggestions || []
         setSuggestions(list)
-        setShowSuggestions(list.length > 0)
+        // Only auto-show if focused
+        if (focused && list.length > 0) {
+          setShowSuggestions(true)
+        }
         setActiveIndex(-1)
       } catch { /* ignore */ }
     }, 200)
 
     return () => clearTimeout(debounceRef.current)
-  }, [query])
+  }, [query, focused])
 
   // Close on outside click
   useEffect(() => {
@@ -64,13 +68,13 @@ export function useAutocomplete(query: string, onNavigate: (q: string) => void) 
       case "ArrowDown":
         e.preventDefault()
         setActiveIndex((prev) =>
-          prev < suggestions.slice(0, 8).length - 1 ? prev + 1 : 0,
+          prev < Math.min(suggestions.length, 8) - 1 ? prev + 1 : 0,
         )
         break
       case "ArrowUp":
         e.preventDefault()
         setActiveIndex((prev) =>
-          prev > 0 ? prev - 1 : suggestions.slice(0, 8).length - 1,
+          prev > 0 ? prev - 1 : Math.min(suggestions.length, 8) - 1,
         )
         break
       case "Enter":
@@ -88,13 +92,24 @@ export function useAutocomplete(query: string, onNavigate: (q: string) => void) 
     }
   }, [showSuggestions, suggestions, activeIndex, select, onNavigate, query])
 
+  const visible = showSuggestions && focused && suggestions.length > 0
+
   return {
     suggestions,
-    showSuggestions,
+    showSuggestions: visible,
     activeIndex,
     listRef,
     setShowSuggestions,
     onKeyDown,
+    onFocus: () => {
+      setFocused(true)
+      if (suggestions.length > 0) setShowSuggestions(true)
+    },
+    onBlur: () => {
+      // Delay so click on dropdown registers first
+      setTimeout(() => setFocused(false), 200)
+      setShowSuggestions(false)
+    },
     select,
   }
 }

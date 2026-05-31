@@ -33,6 +33,8 @@ export default function HomePage() {
     listRef,
     setShowSuggestions,
     onKeyDown,
+    onFocus,
+    onBlur,
     select,
   } = useAutocomplete(query, onNavigate)
 
@@ -54,7 +56,7 @@ export default function HomePage() {
         <button
           type="button"
           onClick={cycle}
-          className="btn btn-ghost btn-sm gap-1.5"
+          className="btn btn-ghost btn-sm gap-1.5 bg-base-100/60 backdrop-blur"
           aria-label="cycle theme"
           title={themeInfo.label}
         >
@@ -90,7 +92,8 @@ export default function HomePage() {
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  onFocus={onFocus}
+                  onBlur={onBlur}
                   onKeyDown={onKeyDown}
                   placeholder="search the web&hellip;"
                   className="grow outline-none bg-transparent"

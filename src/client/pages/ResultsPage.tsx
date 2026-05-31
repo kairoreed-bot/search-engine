@@ -169,6 +169,8 @@ export default function ResultsPage() {
     listRef,
     setShowSuggestions,
     onKeyDown,
+    onFocus,
+    onBlur,
     select,
   } = useAutocomplete(headerQuery, onNavigate)
 
@@ -309,7 +311,7 @@ export default function ResultsPage() {
     <div className="min-h-screen bg-base-200">
       {/* top bar */}
       <header className="sticky top-0 z-40 bg-base-100/70 backdrop-blur-xl border-b border-base-300/50">
-        <div className="flex items-center gap-3 px-4 py-2.5 lg:ml-8 xl:ml-16">
+        <div className="flex items-center gap-3 px-4 py-2.5 max-w-4xl lg:ml-8 xl:ml-16">
           <Link to="/" className="font-black text-lg tracking-tight shrink-0">
             <span className="text-primary">s</span><span className="text-base-content">e</span>
           </Link>
@@ -318,7 +320,8 @@ export default function ResultsPage() {
               type="text"
               value={headerQuery}
               onChange={(e) => setHeaderQuery(e.target.value)}
-              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              onFocus={onFocus}
+              onBlur={onBlur}
               onKeyDown={onKeyDown}
               className="input input-bordered input-sm w-full rounded-xl pl-8 text-sm"
               autoComplete="off"
@@ -340,7 +343,7 @@ export default function ResultsPage() {
           <button
             type="button"
             onClick={cycle}
-            className="btn btn-ghost btn-xs btn-square"
+            className="btn btn-ghost btn-xs btn-square bg-base-200/60"
             aria-label={themeInfo.label}
             title={themeInfo.label}
           >

@@ -25,16 +25,15 @@ export const searchRouter = new Elysia({ prefix: "/api" })
         memSet(memKey, results, 300_000) // 5 min
       }
 
-      const batch1 = results.slice(0, PER_PAGE)
-      for (const r of batch1) {
+      // send all cached results so client has the full set for citations
+      for (const r of results) {
         if (signal?.aborted) return
         yield sse({ event: "result", data: JSON.stringify(r) })
       }
 
-      // signal the total available
       yield sse({
         event: "meta",
-        data: JSON.stringify({ total: results.length, pageSize: PER_PAGE }),
+        data: JSON.stringify({ total: results.length }),
       })
 
       yield* answerSSE(query, results, signal)

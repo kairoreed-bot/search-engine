@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef, type MutableRefObject } from "react"
+import { useState, useEffect, useRef, useCallback, type MutableRefObject } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import Citation from "./Citation"
+import { ExternalLink } from "lucide-react"
 
 interface SearchResult {
   title: string
@@ -52,37 +52,55 @@ const mdComponents = {
 }
 
 /**
- * Split text on citation markers [N] and interleave <Citation /> components inline.
+ * Build a citation DOM element and attach it after the text node.
  */
-function renderWithCitations(
-  text: string,
+function buildCiteEl(
+  idx: number,
   getResult: (i: number) => { title: string; url: string } | undefined,
-): React.ReactNode[] {
-  const parts = text.split(/(?=\[\d+\])|(?<=\[\d+\])/g)
-  return parts.map((part, i) => {
-    const m = part.match(/^\[(\d+)\]$/)
-    if (m) {
-      return <Citation key={`c-${i}`} idx={parseInt(m[1], 10) - 1} getResult={getResult} />
-    }
-    if (!part.trim()) return null
-    return (
-      <ReactMarkdown
-        key={`t-${i}`}
-        remarkPlugins={[remarkGfm]}
-        components={{ ...mdComponents, p: ({ children }: any) => <>{children}</> }}
-      >
-        {part}
-      </ReactMarkdown>
-    )
-  })
+): HTMLElement {
+  const r = getResult(idx)
+  const el = document.createElement("sup")
+  el.className = "inline-flex items-center gap-px px-1 py-[1px] rounded text-[11px] font-medium leading-none align-baseline no-underline cursor-pointer transition-colors"
+  el.style.backgroundColor = "oklch(var(--p) / 0.1)"
+  el.style.color = "oklch(var(--p))"
+
+  if (r) {
+    let host = ""
+    let favicon = ""
+    try {
+      const u = new URL(r.url)
+      host = u.hostname.replace(/^www\./, "")
+      favicon = `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`
+    } catch { host = r.url }
+
+    const img = document.createElement("img")
+    img.src = favicon
+    img.alt = ""
+    img.className = "size-3 rounded-[1px]"
+    img.loading = "lazy"
+    el.appendChild(img)
+
+    const num = document.createElement("span")
+    num.textContent = String(idx + 1)
+    el.appendChild(num)
+
+    el.title = r.title
+    el.addEventListener("click", () => window.open(r.url, "_blank"))
+    el.style.cursor = "pointer"
+  } else {
+    el.textContent = `[${idx + 1}]`
+  }
+
+  return el
 }
 
 export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
   const [visible, setVisible] = useState("")
   const prevLenRef = useRef(0)
+  const containerRef = useRef<HTMLDivElement | null>(null)
 
-  const getResult = useMemo(
-    () => (i: number) => resultsRef.current[i],
+  const getResult = useCallback(
+    (i: number) => resultsRef.current[i],
     [resultsRef],
   )
 
@@ -94,33 +112,49 @@ export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
       return
     }
     if (text.length <= prevLenRef.current) return
-
     const timer = setTimeout(() => {
       setVisible(text)
       prevLenRef.current = text.length
     }, 100)
-
     return () => clearTimeout(timer)
   }, [text, done])
 
+  // Replace [N] text nodes with citation elements
+  useEffect(() => {
+    if (!visible || !containerRef.current) return
+
+    const walker = document.createTreeWalker(
+      containerRef.current,
+      NodeFilter.SHOW_TEXT,
+      null,
+    )
+
+    const toReplace: { node: Text; idx: number }[] = []
+
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text
+      const m = node.textContent?.match(/^\[(\d+)\]$/)
+      if (m) {
+        toReplace.push({ node, idx: parseInt(m[1]!, 10) - 1 })
+      }
+    }
+
+    for (const { node, idx } of toReplace) {
+      const cite = buildCiteEl(idx, getResult)
+      node.parentNode?.replaceChild(cite, node)
+    }
+  }, [visible, getResult])
+
   if (!visible) return null
 
-  // Split on double-newlines for paragraph grouping
-  const blocks = visible.split(/\n\n+/)
-  const nodes: React.ReactNode[] = []
-
-  for (let bi = 0; bi < blocks.length; bi++) {
-    const block = blocks[bi]!
-    nodes.push(
-      <p key={`b-${bi}`} className="my-2">
-        {renderWithCitations(block, getResult)}
-      </p>,
-    )
-  }
-
   return (
-    <div className="prose prose-sm max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
-      {nodes}
+    <div
+      ref={containerRef}
+      className="prose prose-sm max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1 [&_ol]:my-1"
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+        {visible}
+      </ReactMarkdown>
     </div>
   )
 }
