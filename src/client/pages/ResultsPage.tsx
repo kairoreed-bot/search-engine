@@ -79,13 +79,16 @@ function connectAnswerStream(
   query: string,
   signal: AbortSignal,
   dispatch: React.Dispatch<Action>,
+  results?: SearchResult[],
 ) {
   const run = async () => {
     try {
+      const body: any = { query }
+      if (results && results.length > 0) body.results = results
       const res = await fetch("/api/search/stream/answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify(body),
         signal,
       })
 
@@ -252,7 +255,7 @@ export default function ResultsPage() {
       dispatch({ type: "SET_RESULTS", results: initial.results })
       delete window.__INITIAL_DATA__
 
-      connectAnswerStream(query, controller.signal, dispatch)
+      connectAnswerStream(query, controller.signal, dispatch, initial.results)
       return () => controller.abort()
     }
 
