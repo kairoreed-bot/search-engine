@@ -1,2 +1,72 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+/* smooth theme transition */
+html {
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(var(--bc) / 0.15);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(var(--bc) / 0.3);
+}
+
+/* gradient hero background */
+.hero-gradient {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, oklch(var(--p) / 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 80% 20%, oklch(var(--s) / 0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 20% 40%, oklch(var(--a) / 0.05) 0%, transparent 70%);
+}
+
+/* subtle card hover */
+.result-card {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+.result-card:hover {
+  transform: translateY(-1px);
+  border-color: oklch(var(--p) / 0.2);
+}
+
+/* glass effect for search bar in hero */
+.glass-input {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* line clamp mixin */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* animate answer appearance */
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.answer-enter {
+  animation: fadeSlideIn 0.3s ease-out;
+}

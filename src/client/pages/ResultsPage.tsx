@@ -1,5 +1,7 @@
 import { useEffect, useRef, useReducer, useCallback } from "react"
 import { useSearchParams, Link } from "react-router-dom"
+import { useTheme } from "../context/ThemeContext"
+import MarkdownAnswer from "../components/MarkdownAnswer"
 
 interface SearchResult {
   title: string
@@ -32,8 +34,8 @@ type State = {
 
 type Action =
   | { type: "SET_RESULTS"; results: SearchResult[]; total: number }
-  | { type: "APPEND_MORE"; results: SearchResult[]; total: number }
   | { type: "APPEND_RESULT"; result: SearchResult }
+  | { type: "APPEND_MORE"; results: SearchResult[]; total: number }
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_LOADING_MORE"; loadingMore: boolean }
   | { type: "SET_ERROR"; error: string }
@@ -45,7 +47,7 @@ type Action =
   | { type: "TOGGLE_ANSWER" }
   | { type: "RESET" }
 
-const initialState: State = {
+const S0: State = {
   results: [],
   loading: true,
   loadingMore: false,
@@ -60,173 +62,150 @@ const initialState: State = {
   answerExpanded: false,
 }
 
-function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case "SET_RESULTS":
-      return { ...state, results: action.results, total: action.total, loading: false }
-    case "APPEND_RESULT":
-      return { ...state, results: [...state.results, action.result] }
-    case "APPEND_MORE":
-      return {
-        ...state,
-        results: [...state.results, ...action.results],
-        total: action.total,
-        loadingMore: false,
-        nextPage: state.nextPage + 1,
-      }
-    case "SET_LOADING":
-      return { ...state, loading: action.loading }
-    case "SET_LOADING_MORE":
-      return { ...state, loadingMore: action.loadingMore }
-    case "SET_ERROR":
-      return { ...state, error: action.error, loading: false }
-    case "APPEND_ANSWER":
-      return { ...state, answer: state.answer + action.text }
-    case "SET_ANSWER_DONE":
-      return { ...state, answerDone: true, answer: action.text ?? state.answer }
-    case "SET_ANSWER_ERROR":
-      return { ...state, answerError: true }
-    case "SET_ANSWER_UNAVAILABLE":
-      return { ...state, answerUnavailable: true, loading: false }
-    case "SET_CANCELLED":
-      return { ...state, cancelled: true, loading: false }
-    case "TOGGLE_ANSWER":
-      return { ...state, answerExpanded: !state.answerExpanded }
-    case "RESET":
-      return { ...initialState }
-    default:
-      return state
+function red(s: State, a: Action): State {
+  switch (a.type) {
+    case "SET_RESULTS": return { ...s, results: a.results, total: a.total, loading: false }
+    case "APPEND_RESULT": return { ...s, results: [...s.results, a.result] }
+    case "APPEND_MORE": return {
+      ...s, results: [...s.results, ...a.results], total: a.total,
+      loadingMore: false, nextPage: s.nextPage + 1,
+    }
+    case "SET_LOADING": return { ...s, loading: a.loading }
+    case "SET_LOADING_MORE": return { ...s, loadingMore: a.loadingMore }
+    case "SET_ERROR": return { ...s, error: a.error, loading: false }
+    case "APPEND_ANSWER": return { ...s, answer: s.answer + a.text }
+    case "SET_ANSWER_DONE": return { ...s, answerDone: true, answer: a.text ?? s.answer }
+    case "SET_ANSWER_ERROR": return { ...s, answerError: true }
+    case "SET_ANSWER_UNAVAILABLE": return { ...s, answerUnavailable: true, loading: false }
+    case "SET_CANCELLED": return { ...s, cancelled: true, loading: false }
+    case "TOGGLE_ANSWER": return { ...s, answerExpanded: !s.answerExpanded }
+    case "RESET": return { ...S0 }
+    default: return s
   }
 }
 
 function faviconUrl(url: string): string {
-  try {
-    return `https://icons.duckduckgo.com/ip3/${new URL(url).hostname}.ico`
-  } catch {
-    return ""
-  }
+  try { return `https://icons.duckduckgo.com/ip3/${new URL(url).hostname}.ico` }
+  catch { return "" }
 }
 
-// --- answer-only SSE ---
-
-function connectAnswerStream(
-  query: string,
-  signal: AbortSignal,
-  dispatch: React.Dispatch<Action>,
-) {
+function connectAnswerStream(q: string, sig: AbortSignal, d: React.Dispatch<Action>) {
   const run = async () => {
     try {
-      const res = await fetch("/api/search/stream/answer", {
+      const r = await fetch("/api/search/stream/answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-        signal,
+        body: JSON.stringify({ query: q }),
+        signal: sig,
       })
-      if (!res.ok) { dispatch({ type: "SET_ANSWER_UNAVAILABLE" }); return }
+      if (!r.ok) { d({ type: "SET_ANSWER_UNAVAILABLE" }); return }
 
-      const reader = res.body?.getReader()
-      if (!reader) { dispatch({ type: "SET_ANSWER_UNAVAILABLE" }); return }
+      const reader = r.body?.getReader()
+      if (!reader) { d({ type: "SET_ANSWER_UNAVAILABLE" }); return }
 
-      const decoder = new TextDecoder()
-      let buffer = ""
-
+      const dec = new TextDecoder()
+      let buf = ""
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const parts = buffer.split("\n\n")
-        buffer = parts.pop() || ""
+        buf += dec.decode(value, { stream: true })
+        const parts = buf.split("\n\n")
+        buf = parts.pop() || ""
         for (const part of parts) {
-          let event = "", data = ""
-          for (const line of part.split("\n")) {
-            if (line.startsWith("event: ")) event = line.slice(7).trim()
-            else if (line.startsWith("data: ")) data = line.slice(6)
+          let ev = "", dt = ""
+          for (const ln of part.split("\n")) {
+            if (ln.startsWith("event: ")) ev = ln.slice(7).trim()
+            else if (ln.startsWith("data: ")) dt = ln.slice(6)
           }
-          if (!event || !data) continue
+          if (!ev || !dt) continue
           let p: any
-          try { p = JSON.parse(data) } catch { continue }
-          switch (event) {
-            case "answer_chunk": dispatch({ type: "APPEND_ANSWER", text: p.text || "" }); break
-            case "answer_done": dispatch({ type: "SET_ANSWER_DONE", text: p.text }); break
-            case "answer_error": dispatch({ type: "SET_ANSWER_ERROR" }); break
-            case "answer_unavailable": dispatch({ type: "SET_ANSWER_UNAVAILABLE" }); break
+          try { p = JSON.parse(dt) } catch { continue }
+          switch (ev) {
+            case "answer_chunk": d({ type: "APPEND_ANSWER", text: p.text || "" }); break
+            case "answer_done": d({ type: "SET_ANSWER_DONE", text: p.text }); break
+            case "answer_error": d({ type: "SET_ANSWER_ERROR" }); break
+            case "answer_unavailable": d({ type: "SET_ANSWER_UNAVAILABLE" }); break
           }
         }
       }
-    } catch (err: any) {
-      if (!signal.aborted) dispatch({ type: "SET_ANSWER_UNAVAILABLE" })
+    } catch (e: any) {
+      if (!sig.aborted) d({ type: "SET_ANSWER_UNAVAILABLE" })
     }
   }
   run()
 }
 
-export default function ResultsPage() {
-  const [searchParams] = useSearchParams()
-  const query = searchParams.get("q") || ""
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M"
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K"
+  return String(n)
+}
 
-  const [state, dispatch] = useReducer(reducer, initialState)
-  const abortRef = useRef<AbortController | null>(null)
+// ---- component ----
+
+export default function ResultsPage() {
+  const [sp] = useSearchParams()
+  const query = sp.get("q") || ""
+
+  const [state, dispatch] = useReducer(red, S0)
+  const acRef = useRef<AbortController | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const resultsRef = useRef<SearchResult[]>([])
+  const { cycle, theme } = useTheme()
 
   // --- initial fetch ---
   useEffect(() => {
     if (!query) return
 
-    const controller = new AbortController()
-    abortRef.current = controller
+    const ctrl = new AbortController()
+    acRef.current = ctrl
+    resultsRef.current = []
     dispatch({ type: "RESET" })
 
     // SSR shortcut
-    const initial = window.__INITIAL_DATA__
-    if (initial && initial.query === query && initial.results.length > 0) {
-      dispatch({ type: "SET_RESULTS", results: initial.results, total: initial.results.length })
+    const init = window.__INITIAL_DATA__
+    if (init && init.query === query && init.results.length > 0) {
+      resultsRef.current = init.results
+      dispatch({ type: "SET_RESULTS", results: init.results, total: init.results.length })
       delete window.__INITIAL_DATA__
-      connectAnswerStream(query, controller.signal, dispatch)
-      return () => controller.abort()
+      connectAnswerStream(query, ctrl.signal, dispatch)
+      return () => ctrl.abort()
     }
 
-    // SPA fetch: single SSE stream with results + answer
+    // SPA fetch
     const run = async () => {
       try {
-        const res = await fetch("/api/search/stream", {
+        const r = await fetch("/api/search/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query }),
-          signal: controller.signal,
+          signal: ctrl.signal,
         })
-        if (!res.ok) { dispatch({ type: "SET_ERROR", error: `search failed (${res.status})` }); return }
-
-        const reader = res.body?.getReader()
+        if (!r.ok) { dispatch({ type: "SET_ERROR", error: `search failed (${r.status})` }); return }
+        const reader = r.body?.getReader()
         if (!reader) { dispatch({ type: "SET_ERROR", error: "no response body" }); return }
 
-        const decoder = new TextDecoder()
-        let buffer = ""
-        let total = 0
-        let loadingDone = false
-
+        const dec = new TextDecoder()
+        let buf = ""
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          const parts = buffer.split("\n\n")
-          buffer = parts.pop() || ""
-
+          buf += dec.decode(value, { stream: true })
+          const parts = buf.split("\n\n")
+          buf = parts.pop() || ""
           for (const part of parts) {
-            let event = "", data = ""
-            for (const line of part.split("\n")) {
-              if (line.startsWith("event: ")) event = line.slice(7).trim()
-              else if (line.startsWith("data: ")) data = line.slice(6)
+            let ev = "", dt = ""
+            for (const ln of part.split("\n")) {
+              if (ln.startsWith("event: ")) ev = ln.slice(7).trim()
+              else if (ln.startsWith("data: ")) dt = ln.slice(6)
             }
-            if (!event || !data) continue
+            if (!ev || !dt) continue
             let p: any
-            try { p = JSON.parse(data) } catch { continue }
-
-            switch (event) {
+            try { p = JSON.parse(dt) } catch { continue }
+            switch (ev) {
               case "result":
+                resultsRef.current.push(p)
                 dispatch({ type: "APPEND_RESULT", result: p })
-                break
-              case "meta":
-                if (p.total) total = p.total
                 break
               case "answer_chunk":
                 dispatch({ type: "APPEND_ANSWER", text: p.text || "" })
@@ -240,39 +219,35 @@ export default function ResultsPage() {
               case "answer_unavailable":
                 dispatch({ type: "SET_ANSWER_UNAVAILABLE" })
                 break
-              case "done":
-                loadingDone = true
-                break
             }
           }
         }
-
         dispatch({ type: "SET_LOADING", loading: false })
-      } catch (err: any) {
-        if (controller.signal.aborted) dispatch({ type: "SET_CANCELLED" })
-        else dispatch({ type: "SET_ERROR", error: err.message })
+      } catch (e: any) {
+        if (ctrl.signal.aborted) dispatch({ type: "SET_CANCELLED" })
+        else dispatch({ type: "SET_ERROR", error: e.message })
       }
     }
 
     run()
-    return () => controller.abort()
+    return () => ctrl.abort()
   }, [query])
 
   // --- infinite scroll ---
   const loadMore = useCallback(async () => {
     if (state.loadingMore || state.loading) return
-
     dispatch({ type: "SET_LOADING_MORE", loadingMore: true })
     try {
-      const res = await fetch("/api/search/more", {
+      const r = await fetch("/api/search/more", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, page: state.nextPage }),
       })
-      if (!res.ok) { dispatch({ type: "SET_LOADING_MORE", loadingMore: false }); return }
-      const data = await res.json()
-      if (data.results && data.results.length > 0) {
-        dispatch({ type: "APPEND_MORE", results: data.results, total: data.total || state.total })
+      if (!r.ok) { dispatch({ type: "SET_LOADING_MORE", loadingMore: false }); return }
+      const d = await r.json()
+      if (d.results?.length) {
+        resultsRef.current = [...resultsRef.current, ...d.results]
+        dispatch({ type: "APPEND_MORE", results: d.results, total: d.total || state.total })
       } else {
         dispatch({ type: "SET_LOADING_MORE", loadingMore: false })
       }
@@ -292,7 +267,14 @@ export default function ResultsPage() {
     return () => obs.disconnect()
   }, [loadMore, state.loading, state.error])
 
-  // --- render ---
+  // --- render helpers ---
+
+  const cancel = () => {
+    acRef.current?.abort()
+    dispatch({ type: "SET_CANCELLED" })
+  }
+
+  // ---- render ----
 
   if (!query) {
     return (
@@ -307,15 +289,18 @@ export default function ResultsPage() {
 
   return (
     <div className="min-h-screen bg-base-200">
-      {/* header */}
-      <header className="sticky top-0 z-40 bg-base-100/80 backdrop-blur border-b border-base-300">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-4">
-          <Link to="/" className="text-lg font-bold shrink-0">search engine</Link>
-          <div className="flex-1">
+      {/* --- top bar --- */}
+      <header className="sticky top-0 z-40 bg-base-100/70 backdrop-blur-xl border-b border-base-300/50">
+        <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center gap-3">
+          <Link to="/" className="font-black text-lg tracking-tight shrink-0">
+            <span className="text-primary">s</span>
+            <span className="text-base-content">e</span>
+          </Link>
+          <div className="flex-1 relative">
             <input
               type="text"
               defaultValue={query}
-              className="input input-bordered w-full"
+              className="input input-bordered input-sm w-full rounded-xl pl-8 text-sm"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   const v = (e.target as HTMLInputElement).value.trim()
@@ -323,128 +308,157 @@ export default function ResultsPage() {
                 }
               }}
             />
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 opacity-40 pointer-events-none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
+          <button
+            type="button"
+            onClick={cycle}
+            className="btn btn-ghost btn-xs btn-square"
+            aria-label="cycle theme"
+            title={`current: ${theme}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4">
+              <path d="M12 3a6 6 0 0 0 0 12 6 6 0 0 0 0-12z" />
+              <path d="M12 21v-2M12 5V3M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+          </button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-8">
-        {/* AI answer */}
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* --- AI answer --- */}
         {!state.answerUnavailable && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-base-content/60 uppercase tracking-wider">
+          <section className="answer-enter">
+            <div className="flex items-center gap-2 mb-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-[0.15em] text-base-content/40">
                 ai answer
               </h3>
+              <span className="flex-1 h-px bg-base-300/50" />
               {!state.answerDone && !state.answerError && !state.cancelled && !state.loading && (
-                <button
-                  type="button"
-                  onClick={() => { abortRef.current?.abort(); dispatch({ type: "SET_CANCELLED" }) }}
-                  className="btn btn-ghost btn-xs"
-                  aria-label="cancel"
-                >
+                <button type="button" onClick={cancel} className="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content" aria-label="cancel">
                   cancel
                 </button>
               )}
             </div>
-            <div className="bg-base-100 rounded-box p-5 text-sm leading-relaxed min-h-[60px]">
+
+            <div className="relative bg-base-100 rounded-2xl p-5 shadow-sm border border-base-300/40 min-h-[60px]">
+              {/* colored left accent */}
+              <div className="absolute left-0 top-3 bottom-3 w-0.5 bg-gradient-to-b from-primary/60 to-secondary/60 rounded-full" />
+
               {state.answer ? (
-                <>
-                  <p className={state.answerExpanded ? "" : "line-clamp-2"}>{state.answer}</p>
-                  {state.answer.length > 150 && (
-                    <button
-                      type="button"
-                      onClick={() => dispatch({ type: "TOGGLE_ANSWER" })}
-                      className="text-xs text-primary hover:underline mt-1"
-                    >
-                      {state.answerExpanded ? "show less" : "show more"}
-                    </button>
-                  )}
-                </>
+                <div className={state.answerExpanded ? "" : "line-clamp-2"}>
+                  <MarkdownAnswer
+                    text={state.answer}
+                    done={state.answerDone}
+                    resultsRef={resultsRef}
+                  />
+                </div>
               ) : state.answerDone ? (
-                <p className="text-base-content/40 italic">no answer generated</p>
+                <p className="text-base-content/40 italic text-sm">no answer generated</p>
               ) : state.answerError ? (
-                <p className="text-error italic">failed to generate answer</p>
+                <p className="text-error italic text-sm">failed to generate answer</p>
               ) : state.cancelled ? (
-                <p className="text-base-content/40 italic">cancelled</p>
+                <p className="text-base-content/40 italic text-sm">cancelled</p>
               ) : (
-                <div className="flex items-center gap-2 text-base-content/40">
+                <div className="flex items-center gap-2 text-sm text-base-content/40">
                   <span className="loading loading-dots loading-sm" />
                   generating answer&hellip;
                 </div>
               )}
+
+              {state.answer && state.answer.length > 150 && (
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: "TOGGLE_ANSWER" })}
+                  className="text-xs text-primary/60 hover:text-primary mt-1.5 transition-colors"
+                >
+                  {state.answerExpanded ? "collapse" : "read more"}
+                </button>
+              )}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* search results */}
-        <div>
+        {/* --- search results --- */}
+        <section>
           {state.loading && state.results.length === 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={`skeleton-${i}`} className="skeleton h-24 w-full rounded-box" />
+                <div key={`sk-${i}`} className="skeleton h-24 w-full rounded-xl" />
               ))}
             </div>
           ) : state.error ? (
-            <div className="alert alert-error"><span>{state.error}</span></div>
+            <div className="alert alert-error shadow-sm"><span>{state.error}</span></div>
           ) : state.results.length === 0 && !state.loading ? (
-            <div className="text-center py-16">
+            <div className="text-center py-20">
               <p className="text-lg text-base-content/40">no results found</p>
               <p className="text-sm text-base-content/30 mt-1">try a different search term</p>
             </div>
           ) : (
             <>
-              <p className="text-sm text-base-content/40 mb-4">
-                {state.results.length}
-                {state.total > state.results.length ? ` of ${state.total}` : ""} result
-                {state.results.length !== 1 ? "s" : ""}
-              </p>
-              <div className="space-y-4">
+              <div className="flex items-center gap-2 mb-4 text-xs text-base-content/40">
+                <span>
+                  {formatCount(state.results.length)}
+                  {state.total > state.results.length ? ` of ${formatCount(state.total)}` : ""} result
+                  {state.results.length !== 1 ? "s" : ""}
+                </span>
+                <span className="w-px h-3 bg-base-300" />
+                <span>about {query}</span>
+              </div>
+
+              <div className="space-y-3">
                 {state.results.map((r, i) => (
-                  <div key={r.url || i} className="bg-base-100 rounded-box p-4">
+                  <article
+                    key={r.url || i}
+                    data-index={i}
+                    className="result-card bg-base-100 rounded-2xl p-4 border border-base-300/40 shadow-sm"
+                  >
                     <div className="flex items-start gap-3">
+                      {/* favicon */}
                       {faviconUrl(r.url) && (
                         <img
                           src={faviconUrl(r.url)}
                           alt=""
-                          className="size-4 mt-1 shrink-0"
+                          className="size-5 mt-0.5 shrink-0 rounded"
                           loading="lazy"
                         />
                       )}
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <a
                           href={r.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-lg font-medium text-primary hover:underline"
+                          className="text-base font-semibold text-primary hover:underline leading-snug"
                         >
                           {r.title}
                         </a>
-                        <p className="text-xs text-base-content/40 truncate mt-0.5">{r.url}</p>
-                        <p className="text-sm text-base-content/70 mt-2 line-clamp-2">{r.content}</p>
-                        <div className="flex gap-2 mt-2">
-                          <span className="badge badge-ghost badge-xs">
-                            score: {r.score.toFixed(3)}
+                        <p className="text-xs text-base-content/35 truncate mt-0.5">{r.url}</p>
+                        <p className="text-sm text-base-content/65 mt-1.5 line-clamp-2 leading-relaxed">{r.content}</p>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          <span className="badge badge-ghost badge-xs text-[10px] tracking-wide">
+                            {r.score.toFixed(3)}
                           </span>
                           {r.engine && (
-                            <span className="badge badge-ghost badge-xs">{r.engine}</span>
+                            <span className="badge badge-ghost badge-xs text-[10px]">{r.engine}</span>
                           )}
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </article>
                 ))}
               </div>
 
-              {/* infinite scroll sentinel */}
+              {/* sentinel */}
               {!state.loading && <div ref={sentinelRef} className="h-4" />}
+
               {state.loadingMore && (
-                <div className="flex justify-center py-6">
-                  <span className="loading loading-spinner loading-md text-base-content/40" />
+                <div className="flex justify-center py-8">
+                  <span className="loading loading-spinner loading-sm text-base-content/30" />
                 </div>
               )}
             </>
           )}
-        </div>
+        </section>
       </main>
     </div>
   )
