@@ -1,53 +1,91 @@
 import { useState, useEffect, useRef, type FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
+import { Search, Palette } from "lucide-react"
 import { useTheme } from "../context/ThemeContext"
 
 const QUICK_SEARCHES = [
-  { q: "what is the meaning of life", icon: "?" },
-  { q: "latest ai news 2026", icon: ">" },
-  { q: "how to learn rust programming", icon: "}" },
-  { q: "deep learning explained simply", icon: "~" },
+  "what is the meaning of life",
+  "latest ai news 2026",
+  "how to learn rust programming",
+  "deep learning explained simply",
 ]
 
 export default function HomePage() {
   const [query, setQuery] = useState("")
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
-  const { cycle, theme } = useTheme()
+  const suggRef = useRef<HTMLDivElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const { cycle, current: themeInfo } = useTheme()
 
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Autocomplete
   useEffect(() => {
-    inputRef.current?.focus()
+    const q = query.trim()
+    if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
+
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/autocomplete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q }),
+        })
+        if (!r.ok) return
+        const d = await r.json()
+        setSuggestions(d.suggestions || [])
+        setShowSuggestions(d.suggestions?.length > 0)
+      } catch { /* ignore */ }
+    }, 200)
+
+    return () => clearTimeout(debounceRef.current)
+  }, [query])
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (suggRef.current && !suggRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault()
-    const q = query.trim()
+  const handleSubmit = (e: FormEvent | string) => {
+    if (typeof e !== "string") e.preventDefault()
+    const q = (typeof e === "string" ? e : query.trim())
     if (!q) return
+    setShowSuggestions(false)
     navigate(`/search?q=${encodeURIComponent(q)}`)
   }
+
+  const ThemeIcon = themeInfo.icon
 
   return (
     <div className="hero-gradient min-h-screen flex flex-col">
       {/* theme toggle */}
-      <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+      <div className="fixed top-4 right-4 z-50">
         <button
           type="button"
           onClick={cycle}
-          className="btn btn-ghost btn-sm btn-circle"
+          className="btn btn-ghost btn-sm gap-1.5"
           aria-label="cycle theme"
-          title={`current: ${theme} — click to cycle`}
+          title={themeInfo.label}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5">
-            <path d="M12 3a6 6 0 0 0 0 12 6 6 0 0 0 0-12z" />
-            <path d="M12 21v-2M12 5V3M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-          </svg>
+          <ThemeIcon className="size-4" />
+          <span className="text-xs font-medium hidden sm:inline">{themeInfo.label}</span>
         </button>
       </div>
 
       {/* center content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 gap-10">
-        {/* logo / brand */}
-        <div className="text-center space-y-3">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 gap-10 lg:items-start lg:ml-12 xl:ml-24">
+        {/* brand */}
+        <div className="text-center space-y-3 lg:text-left">
           <h1 className="text-6xl md:text-7xl font-black tracking-tight">
             <span className="bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent">
               search
@@ -60,35 +98,27 @@ export default function HomePage() {
         </div>
 
         {/* search form */}
-        <form onSubmit={handleSubmit} className="w-full max-w-xl flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="w-full max-w-xl lg:max-w-2xl flex flex-col gap-4">
           <div className="relative group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 via-secondary/20 to-accent/20 rounded-2xl blur opacity-60 group-focus-within:opacity-100 transition-opacity" />
-            <div className="relative">
+            <div className="relative" ref={suggRef}>
               <label className="input input-bordered input-lg w-full flex items-center gap-3 rounded-2xl bg-base-100/80 glass-input border-base-300/50 focus-within:border-primary/50 transition-colors shadow-lg shadow-black/5">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="size-5 opacity-50 shrink-0"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.35-4.35" />
-                </svg>
+                <Search className="size-5 opacity-50 shrink-0" />
                 <input
                   ref={inputRef}
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
                   placeholder="search the web&hellip;"
                   className="grow outline-none bg-transparent"
                   aria-label="search query"
+                  autoComplete="off"
                 />
                 {query && (
                   <button
                     type="button"
-                    onClick={() => setQuery("")}
+                    onClick={() => { setQuery(""); setSuggestions([]); setShowSuggestions(false) }}
                     className="btn btn-ghost btn-xs btn-circle opacity-60 hover:opacity-100"
                     tabIndex={-1}
                     aria-label="clear"
@@ -99,30 +129,46 @@ export default function HomePage() {
                   </button>
                 )}
               </label>
+
+              {/* autocomplete dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute top-full mt-1 left-0 right-0 bg-base-100 rounded-xl shadow-xl border border-base-300/50 overflow-hidden z-50">
+                  {suggestions.slice(0, 8).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleSubmit(s)}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-base-200/70 transition-colors flex items-center gap-3"
+                    >
+                      <Search className="size-3.5 opacity-40 shrink-0" />
+                      <span className="truncate">{s}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          <button type="submit" className="btn btn-primary btn-lg rounded-xl self-center px-12 shadow-lg shadow-primary/20">
+          <button type="submit" className="btn btn-primary btn-lg rounded-xl self-center px-12 shadow-lg shadow-primary/20 lg:self-start">
             search
           </button>
         </form>
 
         {/* quick searches */}
-        <div className="flex flex-wrap justify-center gap-2 max-w-xl">
+        <div className="flex flex-wrap gap-2 max-w-xl lg:max-w-2xl">
           {QUICK_SEARCHES.map((s) => (
             <button
-              key={s.q}
+              key={s}
               type="button"
-              onClick={() => navigate(`/search?q=${encodeURIComponent(s.q)}`)}
+              onClick={() => handleSubmit(s)}
               className="btn btn-ghost btn-sm rounded-full text-base-content/60 hover:text-base-content hover:bg-base-content/5 transition-colors"
             >
-              {s.q}
+              {s}
             </button>
           ))}
         </div>
       </div>
 
-      {/* footer */}
       <footer className="py-6 text-center text-xs text-base-content/30 space-y-1">
         <p>
           powered by <span className="font-medium">SearXNG</span>

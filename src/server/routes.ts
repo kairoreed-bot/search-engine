@@ -108,6 +108,28 @@ export const searchRouter = new Elysia({ prefix: "/api" })
     },
   )
 
+  .post("/autocomplete", async ({ body }) => {
+      const { q } = body
+      if (!q || q.length < 2) return { query: q || "", suggestions: [] }
+
+      try {
+        const url = `${process.env.SEARXNG_URL || "http://searxng:8080"}/autocompleter?q=${encodeURIComponent(q)}`
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(5000),
+          headers: { "X-Forwarded-For": "127.0.0.1" },
+        })
+        if (!res.ok) return { query: q, suggestions: [] }
+        const data = await res.json()
+        const suggestions: string[] = Array.isArray(data[1]) ? data[1] : []
+        return { query: q, suggestions }
+      } catch {
+        return { query: q, suggestions: [] }
+      }
+    },
+    {
+      body: t.Object({ q: t.String() }),
+    },
+  )
   .get("/health", () => ({ status: "ok" }))
 
 // --- shared answer stream helper ---

@@ -36,11 +36,23 @@ const mdComponents = {
   blockquote: ({ children }: any) => (
     <blockquote className="border-l-4 border-primary/30 pl-3 italic my-2">{children}</blockquote>
   ),
+  table: ({ children }: any) => (
+    <div className="overflow-x-auto my-2">
+      <table className="w-full border-collapse text-sm">{children}</table>
+    </div>
+  ),
+  th: ({ children }: any) => (
+    <th className="border border-base-300 px-3 py-1.5 bg-base-200/50 font-semibold text-left">
+      {children}
+    </th>
+  ),
+  td: ({ children }: any) => (
+    <td className="border border-base-300 px-3 py-1.5">{children}</td>
+  ),
 }
 
 /**
- * Split text on citation markers [N] and interleave <Citation /> components.
- * Text segments are rendered as inline markdown (p → fragment to avoid extra blocks).
+ * Split text on citation markers [N] and interleave <Citation /> components inline.
  */
 function renderWithCitations(
   text: string,
@@ -74,7 +86,7 @@ export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
     [resultsRef],
   )
 
-  // 500ms flush buffer
+  // 100ms flush buffer
   useEffect(() => {
     if (done) {
       setVisible(text)
@@ -86,14 +98,14 @@ export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
     const timer = setTimeout(() => {
       setVisible(text)
       prevLenRef.current = text.length
-    }, 500)
+    }, 100)
 
     return () => clearTimeout(timer)
   }, [text, done])
 
   if (!visible) return null
 
-  // Split on double-newlines for paragraph-aware grouping
+  // Split on double-newlines for paragraph grouping
   const blocks = visible.split(/\n\n+/)
   const nodes: React.ReactNode[] = []
 

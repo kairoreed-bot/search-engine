@@ -1,7 +1,8 @@
-import { useEffect, useRef, useReducer, useCallback } from "react"
+import { useEffect, useRef, useReducer, useCallback, useState } from "react"
 import { useSearchParams, Link } from "react-router-dom"
+import { Search, Palette, ExternalLink } from "lucide-react"
 import { useTheme } from "../context/ThemeContext"
-import MarkdownAnswer from "../components/MarkdownAnswer"
+import AiAnswer from "../components/AiAnswer"
 
 interface SearchResult {
   title: string
@@ -151,7 +152,40 @@ export default function ResultsPage() {
   const acRef = useRef<AbortController | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const resultsRef = useRef<SearchResult[]>([])
-  const { cycle, theme } = useTheme()
+  const { cycle, current: themeInfo } = useTheme()
+
+  // header search autocomplete
+  const [headerQuery, setHeaderQuery] = useState(query)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const suggRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const q = headerQuery.trim()
+    if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
+    const timer = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/autocomplete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q }),
+        })
+        if (!r.ok) return
+        const d = await r.json()
+        setSuggestions(d.suggestions || [])
+        setShowSuggestions(d.suggestions?.length > 0)
+      } catch {}
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [headerQuery])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (suggRef.current && !suggRef.current.contains(e.target as Node)) setShowSuggestions(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
 
   // --- initial fetch ---
   useEffect(() => {
@@ -267,15 +301,14 @@ export default function ResultsPage() {
     return () => obs.disconnect()
   }, [loadMore, state.loading, state.error])
 
-  // --- render helpers ---
-
   const cancel = () => {
     acRef.current?.abort()
     dispatch({ type: "SET_CANCELLED" })
   }
 
-  // ---- render ----
+  const ThemeIcon = themeInfo.icon
 
+  // ---- render ----
   if (!query) {
     return (
       <div className="hero min-h-screen bg-base-200">
@@ -289,100 +322,86 @@ export default function ResultsPage() {
 
   return (
     <div className="min-h-screen bg-base-200">
-      {/* --- top bar --- */}
+      {/* top bar */}
       <header className="sticky top-0 z-40 bg-base-100/70 backdrop-blur-xl border-b border-base-300/50">
-        <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center gap-3">
+        <div className="flex items-center gap-3 px-4 py-2.5 lg:ml-8 xl:ml-16">
           <Link to="/" className="font-black text-lg tracking-tight shrink-0">
-            <span className="text-primary">s</span>
-            <span className="text-base-content">e</span>
+            <span className="text-primary">s</span><span className="text-base-content">e</span>
           </Link>
-          <div className="flex-1 relative">
+          <div className="flex-1 relative" ref={suggRef}>
             <input
               type="text"
-              defaultValue={query}
-              className="input input-bordered input-sm w-full rounded-xl pl-8 text-sm"
+              value={headerQuery}
+              onChange={(e) => setHeaderQuery(e.target.value)}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  const v = (e.target as HTMLInputElement).value.trim()
+                  const v = headerQuery.trim()
                   if (v) window.location.href = `/search?q=${encodeURIComponent(v)}`
                 }
               }}
+              className="input input-bordered input-sm w-full rounded-xl pl-8 text-sm"
+              autoComplete="off"
             />
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 opacity-40 pointer-events-none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 opacity-40 pointer-events-none" />
+
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full mt-1 left-0 right-0 bg-base-100 rounded-xl shadow-xl border border-base-300/50 overflow-hidden z-50">
+                {suggestions.slice(0, 8).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => { setHeaderQuery(s); setShowSuggestions(false); window.location.href = `/search?q=${encodeURIComponent(s)}` }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-base-200/70 transition-colors flex items-center gap-3"
+                  >
+                    <Search className="size-3 opacity-40 shrink-0" />
+                    <span className="truncate">{s}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button
             type="button"
             onClick={cycle}
             className="btn btn-ghost btn-xs btn-square"
-            aria-label="cycle theme"
-            title={`current: ${theme}`}
+            aria-label={themeInfo.label}
+            title={themeInfo.label}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4">
-              <path d="M12 3a6 6 0 0 0 0 12 6 6 0 0 0 0-12z" />
-              <path d="M12 21v-2M12 5V3M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-            </svg>
+            <ThemeIcon className="size-4" />
           </button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        {/* --- AI answer --- */}
-        {!state.answerUnavailable && (
-          <section className="answer-enter">
-            <div className="flex items-center gap-2 mb-2">
-              <h3 className="text-[11px] font-semibold uppercase tracking-[0.15em] text-base-content/40">
-                ai answer
-              </h3>
-              <span className="flex-1 h-px bg-base-300/50" />
-              {!state.answerDone && !state.answerError && !state.cancelled && !state.loading && (
-                <button type="button" onClick={cancel} className="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content" aria-label="cancel">
-                  cancel
-                </button>
-              )}
-            </div>
+      <main className="px-4 py-6 space-y-6 lg:ml-8 xl:ml-16 lg:max-w-3xl xl:max-w-4xl">
+        {/* AI answer */}
+        <AiAnswer
+          text={state.answer}
+          done={state.answerDone}
+          error={state.answerError}
+          unavailable={state.answerUnavailable}
+          cancelled={state.cancelled}
+          loading={state.loading}
+          expanded={state.answerExpanded}
+          resultsRef={resultsRef}
+          onToggle={() => dispatch({ type: "TOGGLE_ANSWER" })}
+          onCancel={cancel}
+        />
 
-            <div className="relative bg-base-100 rounded-2xl p-5 shadow-sm border border-base-300/40 min-h-[60px]">
-              {/* colored left accent */}
-              <div className="absolute left-0 top-3 bottom-3 w-0.5 bg-gradient-to-b from-primary/60 to-secondary/60 rounded-full" />
-
-              {state.answer ? (
-                <div className={state.answerExpanded ? "" : "line-clamp-2"}>
-                  <MarkdownAnswer
-                    text={state.answer}
-                    done={state.answerDone}
-                    resultsRef={resultsRef}
-                  />
-                </div>
-              ) : state.answerDone ? (
-                <p className="text-base-content/40 italic text-sm">no answer generated</p>
-              ) : state.answerError ? (
-                <p className="text-error italic text-sm">failed to generate answer</p>
-              ) : state.cancelled ? (
-                <p className="text-base-content/40 italic text-sm">cancelled</p>
-              ) : (
-                <div className="flex items-center gap-2 text-sm text-base-content/40">
-                  <span className="loading loading-dots loading-sm" />
-                  generating answer&hellip;
-                </div>
-              )}
-
-              {state.answer && state.answer.length > 150 && (
-                <button
-                  type="button"
-                  onClick={() => dispatch({ type: "TOGGLE_ANSWER" })}
-                  className="text-xs text-primary/60 hover:text-primary mt-1.5 transition-colors"
-                >
-                  {state.answerExpanded ? "collapse" : "read more"}
-                </button>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* --- search results --- */}
+        {/* search results */}
         <section>
           {state.loading && state.results.length === 0 ? (
             <div className="space-y-3">
+              {/* AI answer skeleton */}
+              <div className="rounded-2xl p-5 border border-base-300/40">
+                <div className="skeleton h-4 w-20 mb-3 rounded" />
+                <div className="space-y-2">
+                  <div className="skeleton h-3 w-full rounded" />
+                  <div className="skeleton h-3 w-5/6 rounded" />
+                  <div className="skeleton h-3 w-4/6 rounded" />
+                </div>
+              </div>
+              {/* result skeletons */}
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={`sk-${i}`} className="skeleton h-24 w-full rounded-xl" />
               ))}
@@ -414,7 +433,6 @@ export default function ResultsPage() {
                     className="result-card bg-base-100 rounded-2xl p-4 border border-base-300/40 shadow-sm"
                   >
                     <div className="flex items-start gap-3">
-                      {/* favicon */}
                       {faviconUrl(r.url) && (
                         <img
                           src={faviconUrl(r.url)}
@@ -428,9 +446,10 @@ export default function ResultsPage() {
                           href={r.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-base font-semibold text-primary hover:underline leading-snug"
+                          className="text-base font-semibold text-primary hover:underline leading-snug inline-flex items-center gap-1"
                         >
                           {r.title}
+                          <ExternalLink className="size-3 opacity-40 shrink-0" />
                         </a>
                         <p className="text-xs text-base-content/35 truncate mt-0.5">{r.url}</p>
                         <p className="text-sm text-base-content/65 mt-1.5 line-clamp-2 leading-relaxed">{r.content}</p>
@@ -448,7 +467,6 @@ export default function ResultsPage() {
                 ))}
               </div>
 
-              {/* sentinel */}
               {!state.loading && <div ref={sentinelRef} className="h-4" />}
 
               {state.loadingMore && (

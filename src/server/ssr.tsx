@@ -1,6 +1,7 @@
 import { renderToString } from "react-dom/server"
 import { MemoryRouter } from "react-router-dom"
 import App from "../client/App"
+import { ThemeProvider } from "../client/context/ThemeContext"
 import { type SearchResult } from "./reranker"
 import { readFileSync } from "fs"
 import { join } from "path"
@@ -28,7 +29,9 @@ function esc(str: string): string {
 export function renderSearchPage(query: string, results: SearchResult[]): string {
   const appHtml = renderToString(
     <MemoryRouter initialEntries={[`/search?q=${encodeURIComponent(query)}`]}>
-      <App />
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
     </MemoryRouter>,
   )
 

@@ -27,21 +27,17 @@ function meanPool(data: number[][][]): number[][] {
     const dim = tokens[0].length
     const sum = new Array(dim).fill(0)
     for (let i = 0; i < tokens.length; i++) {
-      for (let j = 0; j < dim; j++) {
-        sum[j] += tokens[i][j]
-      }
+      for (let j = 0; j < dim; j++) sum[j] += tokens[i][j]
     }
     const len = tokens.length
     const pooled = sum.map((v) => v / len)
 
-    // L2 normalize in place
     let norm = 0
     for (let j = 0; j < dim; j++) norm += pooled[j] * pooled[j]
     norm = Math.sqrt(norm)
     if (norm > 0) {
       for (let j = 0; j < dim; j++) pooled[j] /= norm
     }
-
     return pooled
   })
 }
@@ -63,8 +59,7 @@ export async function rerank(
     const docTexts = results.map((r) => `${r.title}. ${r.content}`)
     const allTexts = [query, ...docTexts]
 
-    // feature-extraction without built-in pooling — raw token embeddings
-    const output = await extractor(allTexts, { pooling: false, normalize: false })
+    const output = await extractor(allTexts, { pooling: "none" })
     const raw: number[][][] = output.tolist()
 
     const pooled = meanPool(raw)
