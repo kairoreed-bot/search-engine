@@ -2,7 +2,9 @@ import "dotenv/config"
 import { Elysia } from "elysia"
 import { cors } from "@elysiajs/cors"
 import { searchRouter } from "./routes"
-import { initReranker } from "./reranker"
+import { initReranker, rerank } from "./reranker"
+import { searchWeb } from "./search"
+import { renderSearchPage } from "./ssr"
 import { closeRedis } from "./cache"
 import { existsSync, readFileSync, statSync } from "fs"
 import { join, resolve } from "path"
@@ -41,6 +43,35 @@ async function main() {
   const app = new Elysia()
     .use(cors())
     .use(searchRouter)
+    .get("/search", async ({ query }) => {
+      if (process.env.NODE_ENV !== "production") {
+        const index = serveStatic("index.html")
+        if (index) return index
+        return new Response("Not found", { status: 404 })
+      }
+
+      const q = (query.q || "").toString().trim()
+      if (!q) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "/" },
+        })
+      }
+
+      try {
+        const rawResults = await searchWeb(q, 10)
+        const reranked = await rerank(q, rawResults, 10)
+        const html = renderSearchPage(q, reranked)
+        return new Response(html, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        })
+      } catch (err) {
+        console.error("[ssr] search failed:", err)
+        const index = serveStatic("index.html")
+        if (index) return index
+        return new Response("Search failed", { status: 500 })
+      }
+    })
     .get("/*", ({ path }) => {
       if (path.startsWith("/api")) return new Response("Not found", { status: 404 })
       const response = serveStatic(path)

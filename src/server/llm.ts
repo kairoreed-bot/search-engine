@@ -79,7 +79,7 @@ export async function* streamAnswer(
         const content = parsed.choices?.[0]?.delta?.content || ""
         if (content) yield content
       } catch {
-        // skip malformed chunks
+        // skip
       }
     }
   }

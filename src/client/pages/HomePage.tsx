@@ -1,9 +1,14 @@
-import { useState, type FormEvent } from "react"
+import { useState, useEffect, useRef, type FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
 
 export default function HomePage() {
   const [query, setQuery] = useState("")
   const navigate = useNavigate()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -36,12 +41,12 @@ export default function HomePage() {
               <path d="m21 21-4.35-4.35" />
             </svg>
             <input
+              ref={inputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="search the web…"
+              placeholder="search the web&hellip;"
               className="grow outline-none"
-              autoFocus
               aria-label="search query"
             />
           </label>
