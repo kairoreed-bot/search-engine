@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, type FormEvent } from "react"
+import { useState, useEffect, useRef, useCallback, type FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
-import { Search, Palette } from "lucide-react"
+import { Search } from "lucide-react"
 import { useTheme } from "../context/ThemeContext"
+import { useAutocomplete } from "../hooks/useAutocomplete"
+import AutocompleteDropdown from "../components/AutocompleteDropdown"
 
 const QUICK_SEARCHES = [
   "what is the meaning of life",
@@ -12,56 +14,35 @@ const QUICK_SEARCHES = [
 
 export default function HomePage() {
   const [query, setQuery] = useState("")
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
-  const suggRef = useRef<HTMLDivElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
   const { cycle, current: themeInfo } = useTheme()
+
+  const onNavigate = useCallback(
+    (q: string) => {
+      if (!q) return
+      navigate(`/search?q=${encodeURIComponent(q)}`)
+    },
+    [navigate],
+  )
+
+  const {
+    suggestions,
+    showSuggestions,
+    activeIndex,
+    listRef,
+    setShowSuggestions,
+    onKeyDown,
+    select,
+  } = useAutocomplete(query, onNavigate)
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  // Autocomplete
-  useEffect(() => {
-    const q = query.trim()
-    if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
-
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const r = await fetch("/api/autocomplete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q }),
-        })
-        if (!r.ok) return
-        const d = await r.json()
-        setSuggestions(d.suggestions || [])
-        setShowSuggestions(d.suggestions?.length > 0)
-      } catch { /* ignore */ }
-    }, 200)
-
-    return () => clearTimeout(debounceRef.current)
-  }, [query])
-
-  // Close suggestions on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (suggRef.current && !suggRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false)
-      }
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
-
   const handleSubmit = (e: FormEvent | string) => {
     if (typeof e !== "string") e.preventDefault()
-    const q = (typeof e === "string" ? e : query.trim())
+    const q = typeof e === "string" ? e : query.trim()
     if (!q) return
-    setShowSuggestions(false)
-    navigate(`/search?q=${encodeURIComponent(q)}`)
+    onNavigate(q)
   }
 
   const ThemeIcon = themeInfo.icon
@@ -101,7 +82,7 @@ export default function HomePage() {
         <form onSubmit={handleSubmit} className="w-full max-w-xl lg:max-w-2xl flex flex-col gap-4">
           <div className="relative group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 via-secondary/20 to-accent/20 rounded-2xl blur opacity-60 group-focus-within:opacity-100 transition-opacity" />
-            <div className="relative" ref={suggRef}>
+            <div className="relative">
               <label className="input input-bordered input-lg w-full flex items-center gap-3 rounded-2xl bg-base-100/80 glass-input border-base-300/50 focus-within:border-primary/50 transition-colors shadow-lg shadow-black/5">
                 <Search className="size-5 opacity-50 shrink-0" />
                 <input
@@ -110,6 +91,7 @@ export default function HomePage() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  onKeyDown={onKeyDown}
                   placeholder="search the web&hellip;"
                   className="grow outline-none bg-transparent"
                   aria-label="search query"
@@ -130,22 +112,17 @@ export default function HomePage() {
                 )}
               </label>
 
-              {/* autocomplete dropdown */}
-              {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute top-full mt-1 left-0 right-0 bg-base-100 rounded-xl shadow-xl border border-base-300/50 overflow-hidden z-50">
-                  {suggestions.slice(0, 8).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => handleSubmit(s)}
-                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-base-200/70 transition-colors flex items-center gap-3"
-                    >
-                      <Search className="size-3.5 opacity-40 shrink-0" />
-                      <span className="truncate">{s}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <AutocompleteDropdown
+                suggestions={suggestions}
+                activeIndex={activeIndex}
+                visible={showSuggestions}
+                listRef={listRef as React.RefObject<HTMLDivElement | null>}
+                onSelect={select}
+                onEnter={() => {
+                  if (activeIndex >= 0) select(suggestions[activeIndex]!)
+                  else onNavigate(query.trim())
+                }}
+              />
             </div>
           </div>
 

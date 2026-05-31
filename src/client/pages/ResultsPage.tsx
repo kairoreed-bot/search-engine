@@ -1,7 +1,9 @@
 import { useEffect, useRef, useReducer, useCallback, useState } from "react"
 import { useSearchParams, Link } from "react-router-dom"
-import { Search, Palette, ExternalLink } from "lucide-react"
+import { Search, ExternalLink } from "lucide-react"
 import { useTheme } from "../context/ThemeContext"
+import { useAutocomplete } from "../hooks/useAutocomplete"
+import AutocompleteDropdown from "../components/AutocompleteDropdown"
 import AiAnswer from "../components/AiAnswer"
 
 interface SearchResult {
@@ -156,36 +158,19 @@ export default function ResultsPage() {
 
   // header search autocomplete
   const [headerQuery, setHeaderQuery] = useState(query)
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const suggRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const q = headerQuery.trim()
-    if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
-    const timer = setTimeout(async () => {
-      try {
-        const r = await fetch("/api/autocomplete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q }),
-        })
-        if (!r.ok) return
-        const d = await r.json()
-        setSuggestions(d.suggestions || [])
-        setShowSuggestions(d.suggestions?.length > 0)
-      } catch {}
-    }, 200)
-    return () => clearTimeout(timer)
-  }, [headerQuery])
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (suggRef.current && !suggRef.current.contains(e.target as Node)) setShowSuggestions(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
+  const onNavigate = useCallback(
+    (q: string) => { if (q) window.location.href = `/search?q=${encodeURIComponent(q)}` },
+    [],
+  )
+  const {
+    suggestions,
+    showSuggestions,
+    activeIndex,
+    listRef,
+    setShowSuggestions,
+    onKeyDown,
+    select,
+  } = useAutocomplete(headerQuery, onNavigate)
 
   // --- initial fetch ---
   useEffect(() => {
@@ -328,38 +313,29 @@ export default function ResultsPage() {
           <Link to="/" className="font-black text-lg tracking-tight shrink-0">
             <span className="text-primary">s</span><span className="text-base-content">e</span>
           </Link>
-          <div className="flex-1 relative" ref={suggRef}>
+          <div className="flex-1 relative">
             <input
               type="text"
               value={headerQuery}
               onChange={(e) => setHeaderQuery(e.target.value)}
               onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const v = headerQuery.trim()
-                  if (v) window.location.href = `/search?q=${encodeURIComponent(v)}`
-                }
-              }}
+              onKeyDown={onKeyDown}
               className="input input-bordered input-sm w-full rounded-xl pl-8 text-sm"
               autoComplete="off"
             />
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 opacity-40 pointer-events-none" />
 
-            {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute top-full mt-1 left-0 right-0 bg-base-100 rounded-xl shadow-xl border border-base-300/50 overflow-hidden z-50">
-                {suggestions.slice(0, 8).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => { setHeaderQuery(s); setShowSuggestions(false); window.location.href = `/search?q=${encodeURIComponent(s)}` }}
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-base-200/70 transition-colors flex items-center gap-3"
-                  >
-                    <Search className="size-3 opacity-40 shrink-0" />
-                    <span className="truncate">{s}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <AutocompleteDropdown
+              suggestions={suggestions}
+              activeIndex={activeIndex}
+              visible={showSuggestions}
+              listRef={listRef as React.RefObject<HTMLDivElement | null>}
+              onSelect={(s) => { setHeaderQuery(s); select(s) }}
+              onEnter={() => {
+                if (activeIndex >= 0) select(suggestions[activeIndex]!)
+                else onNavigate(headerQuery.trim())
+              }}
+            />
           </div>
           <button
             type="button"
