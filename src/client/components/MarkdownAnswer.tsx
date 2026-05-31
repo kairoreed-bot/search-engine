@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback, type MutableRefObject } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback, type MutableRefObject } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { ExternalLink } from "lucide-react"
+import rehypeRaw from "rehype-raw"
 
 interface SearchResult {
   title: string
@@ -51,49 +51,6 @@ const mdComponents = {
   ),
 }
 
-/**
- * Build a citation DOM element and attach it after the text node.
- */
-function buildCiteEl(
-  idx: number,
-  getResult: (i: number) => { title: string; url: string } | undefined,
-): HTMLElement {
-  const r = getResult(idx)
-  const el = document.createElement("sup")
-  el.className = "inline-flex items-center gap-px px-1 py-[1px] rounded text-[11px] font-medium leading-none align-baseline no-underline cursor-pointer transition-colors"
-  el.style.backgroundColor = "oklch(var(--p) / 0.1)"
-  el.style.color = "oklch(var(--p))"
-
-  if (r) {
-    let host = ""
-    let favicon = ""
-    try {
-      const u = new URL(r.url)
-      host = u.hostname.replace(/^www\./, "")
-      favicon = `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`
-    } catch { host = r.url }
-
-    const img = document.createElement("img")
-    img.src = favicon
-    img.alt = ""
-    img.className = "size-3 rounded-[1px]"
-    img.loading = "lazy"
-    el.appendChild(img)
-
-    const num = document.createElement("span")
-    num.textContent = String(idx + 1)
-    el.appendChild(num)
-
-    el.title = r.title
-    el.addEventListener("click", () => window.open(r.url, "_blank"))
-    el.style.cursor = "pointer"
-  } else {
-    el.textContent = `[${idx + 1}]`
-  }
-
-  return el
-}
-
 export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
   const [visible, setVisible] = useState("")
   const prevLenRef = useRef(0)
@@ -119,41 +76,68 @@ export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
     return () => clearTimeout(timer)
   }, [text, done])
 
-  // Replace [N] text nodes with citation elements
+  // Hydrate <cite> elements with favicon + number + click handler
   useEffect(() => {
     if (!visible || !containerRef.current) return
+    const cites = containerRef.current.querySelectorAll("cite.__cite__")
+    for (const el of cites) {
+      const idx = parseInt(el.getAttribute("data-idx") || "0", 10)
+      const r = getResult(idx)
+      el.className =
+        "inline-flex items-center gap-px px-1 py-[1px] rounded text-[11px] font-medium leading-none align-baseline no-underline cursor-pointer transition-colors"
+      el.style.backgroundColor = "oklch(var(--p) / 0.1)"
+      el.style.color = "oklch(var(--p))"
 
-    const walker = document.createTreeWalker(
-      containerRef.current,
-      NodeFilter.SHOW_TEXT,
-      null,
-    )
+      if (r) {
+        let host = ""
+        let favicon = ""
+        try {
+          const u = new URL(r.url)
+          host = u.hostname.replace(/^www\./, "")
+          favicon = `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`
+        } catch { host = r.url }
 
-    const toReplace: { node: Text; idx: number }[] = []
+        const img = document.createElement("img")
+        img.src = favicon
+        img.alt = ""
+        img.className = "size-3 rounded-[1px] bg-base-300"
+        img.loading = "lazy"
+        el.appendChild(img)
 
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text
-      const m = node.textContent?.match(/^\[(\d+)\]$/)
-      if (m) {
-        toReplace.push({ node, idx: parseInt(m[1]!, 10) - 1 })
+        const span = document.createElement("span")
+        span.textContent = String(idx + 1)
+        el.appendChild(span)
+
+        el.title = r.title
+        el.addEventListener("click", (e) => {
+          e.stopPropagation()
+          window.open(r.url, "_blank")
+        })
+      } else {
+        el.textContent = `[${idx + 1}]`
       }
-    }
-
-    for (const { node, idx } of toReplace) {
-      const cite = buildCiteEl(idx, getResult)
-      node.parentNode?.replaceChild(cite, node)
     }
   }, [visible, getResult])
 
   if (!visible) return null
+
+  // Pre-process: replace [N] with <cite> tags so markdown preserves structure
+  const processed = visible.replace(
+    /\[(\d+)\]/g,
+    (_, n) => `<cite class="__cite__" data-idx="${parseInt(n, 10) - 1}"></cite>`,
+  )
 
   return (
     <div
       ref={containerRef}
       className="prose prose-sm max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1 [&_ol]:my-1"
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-        {visible}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
+        components={mdComponents}
+      >
+        {processed}
       </ReactMarkdown>
     </div>
   )

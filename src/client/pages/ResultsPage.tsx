@@ -343,7 +343,7 @@ export default function ResultsPage() {
           <button
             type="button"
             onClick={cycle}
-            className="btn btn-ghost btn-xs btn-square bg-base-200/60"
+            className="btn btn-ghost btn-xs btn-square bg-base-200/60 ml-auto"
             aria-label={themeInfo.label}
             title={themeInfo.label}
           >
@@ -416,7 +416,7 @@ export default function ResultsPage() {
                         <img
                           src={faviconUrl(r.url)}
                           alt=""
-                          className="size-5 mt-0.5 shrink-0 rounded"
+                          className="size-5 mt-0.5 shrink-0 rounded bg-base-300 p-0.5"
                           loading="lazy"
                         />
                       )}
