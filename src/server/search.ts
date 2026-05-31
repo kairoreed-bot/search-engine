@@ -22,6 +22,9 @@ export async function searchWeb(
 
   const res = await fetch(url, {
     signal: AbortSignal.timeout(15000),
+    headers: {
+      "X-Forwarded-For": "127.0.0.1",
+    },
   })
 
   if (!res.ok) {
