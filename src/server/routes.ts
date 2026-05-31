@@ -1,102 +1,116 @@
 import { Elysia, t, sse } from "elysia"
-import { searchWeb } from "./search"
+import { fetchPages, searchPage } from "./search"
 import { rerank, type SearchResult } from "./reranker"
 import { streamAnswer } from "./llm"
-import { getCached, setCache } from "./cache"
+import { getCached, setCache, memGet, memSet } from "./cache"
+
+const INITIAL_PAGES = 3
+const PER_PAGE = 10
 
 export const searchRouter = new Elysia({ prefix: "/api" })
-  .post(
-    "/search",
-    async ({ body, set }) => {
-      const { query, time_range, max_results } = body
-
-      const cacheKey = `search:${query}:${time_range || ""}`
-      const cached = await getCached(cacheKey)
-      if (cached) {
-        return JSON.parse(cached)
-      }
-
-      const rawResults = await searchWeb(query, max_results || 10, time_range || undefined)
-      const reranked = await rerank(query, rawResults, max_results || 10)
-
-      const response = {
-        query,
-        results: reranked,
-        total: reranked.length,
-      }
-
-      await setCache(cacheKey, JSON.stringify(response), 600)
-      return response
-    },
-    {
-      body: t.Object({
-        query: t.String({ minLength: 1 }),
-        max_results: t.Optional(t.Number({ default: 10, minimum: 1, maximum: 50 })),
-        time_range: t.Optional(t.String()),
-      }),
-    },
-  )
+  // --- Full search + results + AI answer (SSE) ---
   .post(
     "/search/stream",
     async function* ({ body, request }) {
-      const { query, time_range, max_results } = body
+      const { query, time_range } = body
       const signal = request.signal
 
-      const rawResults = await searchWeb(query, max_results || 10, time_range || undefined)
-      const reranked = await rerank(query, rawResults, max_results || 10)
+      // In-memory cache check
+      const memKey = `results:${query}`
+      let results = memGet<SearchResult[]>(memKey)
 
-      for (const r of reranked) {
-        if (signal?.aborted) return
-        yield sse({
-          event: "result",
-          data: JSON.stringify(r),
-        })
+      if (!results) {
+        const allResults = await fetchPages(query, INITIAL_PAGES, time_range || undefined)
+        results = await rerank(query, allResults, INITIAL_PAGES * PER_PAGE)
+        memSet(memKey, results, 300_000) // 5 min
       }
 
-      yield* answerSSE(query, reranked, signal)
+      const batch1 = results.slice(0, PER_PAGE)
+      for (const r of batch1) {
+        if (signal?.aborted) return
+        yield sse({ event: "result", data: JSON.stringify(r) })
+      }
+
+      // signal the total available
+      yield sse({
+        event: "meta",
+        data: JSON.stringify({ total: results.length, pageSize: PER_PAGE }),
+      })
+
+      yield* answerSSE(query, results, signal)
     },
     {
       body: t.Object({
         query: t.String({ minLength: 1 }),
-        max_results: t.Optional(t.Number({ default: 10, minimum: 1, maximum: 50 })),
         time_range: t.Optional(t.String()),
       }),
     },
   )
-  .post(
-    "/search/stream/answer",
-    async function* ({ body, request }) {
-      const { query, results } = body
-      const signal = request.signal
 
-      if (results && results.length > 0) {
-        yield* answerSSE(query, results, signal)
-        return
+  // --- Load more results (JSON) ---
+  .post(
+    "/search/more",
+    async ({ body }) => {
+      const { query, page, time_range } = body
+
+      const memKey = `results:${query}`
+      let results = memGet<SearchResult[]>(memKey)
+
+      // If we have cached results and the page falls within them, serve from cache
+      if (results && page * PER_PAGE <= results.length) {
+        const batch = results.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+        return { results: batch, total: results.length }
       }
 
-      // No results provided -- fetch and rerank them
-      const rawResults = await searchWeb(query, 10)
-      const reranked = await rerank(query, rawResults, 10)
-      yield* answerSSE(query, reranked, signal)
+      // Fetch the next searxng page fresh
+      const raw = await searchPage(query, page, PER_PAGE, time_range || undefined)
+      const reranked = await rerank(query, raw, PER_PAGE)
+      return { results: reranked, total: 0 }
     },
     {
       body: t.Object({
         query: t.String({ minLength: 1 }),
-        results: t.Optional(
-          t.Array(
-            t.Object({
-              title: t.String(),
-              url: t.String(),
-              content: t.String(),
-              score: t.Number(),
-              engine: t.Optional(t.String()),
-            }),
-          ),
-        ),
+        page: t.Number({ minimum: 2 }),
+        time_range: t.Optional(t.String()),
       }),
     },
   )
+
+  // --- AI answer only (SSE) — uses in-memory cached results ---
+  .post(
+    "/search/stream/answer",
+    async function* ({ body, request }) {
+      const { query } = body
+      const signal = request.signal
+
+      // Check redis for cached answer first
+      const cachedAnswer = await getCached(`answer:${query}`)
+      if (cachedAnswer) {
+        yield sse({ event: "answer_done", data: JSON.stringify({ text: cachedAnswer }) })
+        yield sse({ event: "done", data: "{}" })
+        return
+      }
+
+      // Check in-memory cache for results
+      const memKey = `results:${query}`
+      const results = memGet<SearchResult[]>(memKey)
+      if (!results) {
+        // No cached results — AI answer unavailable
+        yield sse({ event: "answer_unavailable", data: "{}" })
+        yield sse({ event: "done", data: "{}" })
+        return
+      }
+
+      yield* answerSSE(query, results, signal)
+    },
+    {
+      body: t.Object({ query: t.String({ minLength: 1 }) }),
+    },
+  )
+
   .get("/health", () => ({ status: "ok" }))
+
+// --- shared answer stream helper ---
 
 async function* answerSSE(
   query: string,
@@ -106,10 +120,7 @@ async function* answerSSE(
   const cacheKey = `answer:${query}`
   const cachedAnswer = await getCached(cacheKey)
   if (cachedAnswer) {
-    yield sse({
-      event: "answer_done",
-      data: JSON.stringify({ text: cachedAnswer }),
-    })
+    yield sse({ event: "answer_done", data: JSON.stringify({ text: cachedAnswer }) })
     yield sse({ event: "done", data: "{}" })
     return
   }
@@ -118,24 +129,15 @@ async function* answerSSE(
   try {
     for await (const chunk of streamAnswer(query, results, signal)) {
       fullAnswer += chunk
-      yield sse({
-        event: "answer_chunk",
-        data: JSON.stringify({ text: chunk }),
-      })
+      yield sse({ event: "answer_chunk", data: JSON.stringify({ text: chunk }) })
     }
 
-    if (fullAnswer) {
-      await setCache(cacheKey, fullAnswer, 3600)
-    }
-
+    if (fullAnswer) await setCache(cacheKey, fullAnswer, 3600)
     yield sse({ event: "answer_done", data: "{}" })
   } catch (err: any) {
     if (err.name === "AbortError") return
     console.error("[sse] llm error:", err)
-    yield sse({
-      event: "answer_error",
-      data: JSON.stringify({ error: err.message }),
-    })
+    yield sse({ event: "answer_error", data: JSON.stringify({ error: err.message }) })
   }
 
   yield sse({ event: "done", data: "{}" })

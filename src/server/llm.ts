@@ -4,13 +4,13 @@ const LLM_ENABLED = process.env.LLM_ENABLED !== "false"
 const LLM_BASE_URL = process.env.LLM_BASE_URL || "http://localhost:11434/v1"
 const LLM_API_KEY = process.env.LLM_API_KEY || "ollama"
 const LLM_MODEL = process.env.LLM_MODEL || "qwen3.5:9b"
-const LLM_MAX_TOKENS = parseInt(process.env.LLM_MAX_TOKENS || "1024", 10)
+const LLM_MAX_TOKENS = parseInt(process.env.LLM_MAX_TOKENS || "32768", 10)
 const LLM_TEMPERATURE = parseFloat(process.env.LLM_TEMPERATURE || "0.1")
 
 export async function* streamAnswer(
   query: string,
   results: SearchResult[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): AsyncGenerator<string> {
   if (!LLM_ENABLED) {
     yield "LLM answer generation is disabled."
@@ -18,12 +18,12 @@ export async function* streamAnswer(
   }
 
   const context = results
-    .slice(0, 5)
+    .slice(0, 20)
     .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content.slice(0, 500)}`)
     .join("\n\n")
 
   const systemPrompt =
-    "You are a helpful search assistant. Answer the user's question concisely based on the provided search results. Cite sources by number [1], [2], etc. If the results don't contain enough info, say so."
+    "You are a helpful search assistant. Provide a thorough, detailed answer to the user's question based on the provided search results. Cite sources by number [1], [2], etc. If the results don't contain enough info, say so."
 
   const body = JSON.stringify({
     model: LLM_MODEL,

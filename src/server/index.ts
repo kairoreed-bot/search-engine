@@ -3,9 +3,9 @@ import { Elysia } from "elysia"
 import { cors } from "@elysiajs/cors"
 import { searchRouter } from "./routes"
 import { initReranker, rerank } from "./reranker"
-import { searchWeb } from "./search"
+import { fetchPages } from "./search"
 import { renderSearchPage } from "./ssr"
-import { closeRedis } from "./cache"
+import { closeRedis, memGet, memSet } from "./cache"
 import { existsSync, readFileSync, statSync } from "fs"
 import { join, resolve } from "path"
 
@@ -59,9 +59,14 @@ async function main() {
       }
 
       try {
-        const rawResults = await searchWeb(q, 10)
-        const reranked = await rerank(q, rawResults, 10)
-        const html = renderSearchPage(q, reranked)
+        const memKey = `results:${q}`
+        let results = memGet<any[]>(memKey)
+        if (!results) {
+          const allResults = await fetchPages(q, 3)
+          results = await rerank(q, allResults, 30)
+          memSet(memKey, results, 300_000)
+        }
+        const html = renderSearchPage(q, results)
         return new Response(html, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         })
