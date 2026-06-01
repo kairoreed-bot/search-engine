@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type MutableRefObject } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback, type MutableRefObject } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeRaw from "rehype-raw"
@@ -15,23 +15,6 @@ interface Props {
   text: string
   done: boolean
   resultsRef: MutableRefObject<SearchResult[]>
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-}
-
-function citeHtml(url: string, title: string, num: number): string {
-  let favicon = ""
-  try {
-    const u = new URL(url)
-    favicon = `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`
-  } catch { /* use empty */ }
-  return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"
-    style="background-color:oklch(var(--p)/0.1);color:oklch(var(--p))"
-    class="__cite__ inline-flex items-center gap-px px-1 py-[1px] rounded text-[11px] font-medium leading-none align-baseline no-underline cursor-pointer transition-colors"
-    title="${esc(title)}"
-  ><img src="${esc(favicon)}" alt="" class="size-3 rounded-[1px] bg-base-300" loading="lazy"><span>${num}</span></a>`
 }
 
 const mdComponents = {
@@ -71,6 +54,12 @@ const mdComponents = {
 export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
   const [visible, setVisible] = useState("")
   const prevLenRef = useRef(0)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  const getResult = useCallback(
+    (i: number) => resultsRef.current[i],
+    [resultsRef],
+  )
 
   // 100ms flush buffer
   useEffect(() => {
@@ -87,21 +76,62 @@ export default function MarkdownAnswer({ text, done, resultsRef }: Props) {
     return () => clearTimeout(timer)
   }, [text, done])
 
+  // Hydrate <cite> elements with favicon + number + click handler
+  useEffect(() => {
+    if (!visible || !containerRef.current) return
+    const cites = containerRef.current.querySelectorAll("cite.__cite__")
+    for (const el of cites) {
+      const idx = parseInt(el.getAttribute("data-idx") || "0", 10)
+      const r = getResult(idx)
+      el.className =
+        "inline-flex items-center gap-px px-1 py-[1px] rounded text-[11px] font-medium leading-none align-baseline no-underline cursor-pointer transition-colors"
+      el.style.backgroundColor = "oklch(var(--p) / 0.1)"
+      el.style.color = "oklch(var(--p))"
+
+      if (r) {
+        let host = ""
+        let favicon = ""
+        try {
+          const u = new URL(r.url)
+          host = u.hostname.replace(/^www\./, "")
+          favicon = `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`
+        } catch { host = r.url }
+
+        const img = document.createElement("img")
+        img.src = favicon
+        img.alt = ""
+        img.className = "size-3 rounded-[1px] bg-base-300"
+        img.loading = "lazy"
+        el.appendChild(img)
+
+        const span = document.createElement("span")
+        span.textContent = String(idx + 1)
+        el.appendChild(span)
+
+        el.title = r.title
+        el.addEventListener("click", (e) => {
+          e.stopPropagation()
+          window.open(r.url, "_blank")
+        })
+      } else {
+        el.textContent = `[${idx + 1}]`
+      }
+    }
+  }, [visible, getResult])
+
   if (!visible) return null
 
-  // Replace [N] markers with fully-formed inline HTML anchors
+  // Pre-process: replace [N] with <cite> tags so markdown preserves structure
   const processed = visible.replace(
     /\[(\d+)\]/g,
-    (_, n) => {
-      const idx = parseInt(n, 10) - 1
-      const r = resultsRef.current[idx]
-      if (!r) return `<sup class="text-primary font-bold text-[10px]">[${idx + 1}]</sup>`
-      return citeHtml(r.url, r.title, idx + 1)
-    },
+    (_, n) => `<cite class="__cite__" data-idx="${parseInt(n, 10) - 1}"></cite>`,
   )
 
   return (
-    <div className="prose prose-sm max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1 [&_ol]:my-1">
+    <div
+      ref={containerRef}
+      className="prose prose-sm max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1 [&_ol]:my-1"
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
