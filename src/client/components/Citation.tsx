@@ -39,7 +39,7 @@ export default function Citation({ idx, getResult }: CitationProps) {
       title={r.title}
     >
       {favicon && (
-        <img src={favicon} alt="" className="size-3 rounded-[1px]" loading="lazy" />
+        <img src={favicon} alt="" className="size-3 rounded-[1px] bg-base-300" loading="lazy" />
       )}
       <span>{idx + 1}</span>
     </a>

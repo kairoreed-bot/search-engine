@@ -311,39 +311,41 @@ export default function ResultsPage() {
     <div className="min-h-screen bg-base-200">
       {/* top bar */}
       <header className="sticky top-0 z-40 bg-base-100/70 backdrop-blur-xl border-b border-base-300/50">
-        <div className="flex items-center gap-3 px-4 py-2.5 max-w-4xl lg:ml-8 xl:ml-16">
-          <Link to="/" className="font-black text-lg tracking-tight shrink-0">
-            <span className="text-primary">s</span><span className="text-base-content">e</span>
-          </Link>
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={headerQuery}
-              onChange={(e) => setHeaderQuery(e.target.value)}
-              onFocus={onFocus}
-              onBlur={onBlur}
-              onKeyDown={onKeyDown}
-              className="input input-bordered input-sm w-full rounded-xl pl-8 text-sm"
-              autoComplete="off"
-            />
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 opacity-40 pointer-events-none" />
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          <div className="flex items-center gap-3 flex-1 max-w-4xl lg:ml-8 xl:ml-16">
+            <Link to="/" className="font-black text-lg tracking-tight shrink-0">
+              <span className="text-primary">s</span><span className="text-base-content">e</span>
+            </Link>
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={headerQuery}
+                onChange={(e) => setHeaderQuery(e.target.value)}
+                onFocus={onFocus}
+                onBlur={onBlur}
+                onKeyDown={onKeyDown}
+                className="input input-bordered input-sm w-full rounded-xl pl-8 text-sm"
+                autoComplete="off"
+              />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 opacity-40 pointer-events-none" />
 
-            <AutocompleteDropdown
-              suggestions={suggestions}
-              activeIndex={activeIndex}
-              visible={showSuggestions}
-              listRef={listRef as React.RefObject<HTMLDivElement | null>}
-              onSelect={(s) => { setHeaderQuery(s); select(s) }}
-              onEnter={() => {
-                if (activeIndex >= 0) select(suggestions[activeIndex]!)
-                else onNavigate(headerQuery.trim())
-              }}
-            />
+              <AutocompleteDropdown
+                suggestions={suggestions}
+                activeIndex={activeIndex}
+                visible={showSuggestions}
+                listRef={listRef as React.RefObject<HTMLDivElement | null>}
+                onSelect={(s) => { setHeaderQuery(s); select(s) }}
+                onEnter={() => {
+                  if (activeIndex >= 0) select(suggestions[activeIndex]!)
+                  else onNavigate(headerQuery.trim())
+                }}
+              />
+            </div>
           </div>
           <button
             type="button"
             onClick={cycle}
-            className="btn btn-ghost btn-xs btn-square bg-base-200/60 ml-auto"
+            className="btn btn-ghost btn-xs btn-square bg-base-200/60 shrink-0"
             aria-label={themeInfo.label}
             title={themeInfo.label}
           >
